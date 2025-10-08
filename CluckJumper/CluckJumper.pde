@@ -78,7 +78,7 @@ int restartDelay = 400; //half a second
 //gameWin stuff
 int winTime = 0;
 int nextMapDelay = 400;
-int scoreToWin = 2;
+int scoreToWin = 7;
 
 //game logic
 Bird bird;
