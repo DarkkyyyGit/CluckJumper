@@ -24,6 +24,7 @@ PImage ground3;
 PImage ground3Sheet;
 PImage tPipeImg;
 PImage bPipeImg;
+PFont myFont;
 //PImage spriteSheet;
 PImage spriteSheetEgg;
 PImage spriteSheetChick;
@@ -32,6 +33,7 @@ PImage tPipeImg2;
 PImage bPipeImg2;
 PImage tPipeImg3;
 PImage bPipeImg3;
+PImage explosion;
 
 //animation
 PImage[] frames;
@@ -55,6 +57,7 @@ PImage[] birdSilhouettes; //for loading screen
 boolean[] birdUnlocked = {true, false, false}; //only first bird is unlocked
 String[] birdNames = {"Egg", "Chick", "Chicken"};
 
+
 //Pipes
 int pipeX;
 int pipeY = 0;
@@ -74,11 +77,15 @@ boolean gameOver = false;
 double score = 0;
 int deathTime = 0; //stores millis() when bird dies
 int restartDelay = 400; //half a second
+float deathAlpha = 255; // start fully opaque
+boolean fadingOut = false;
+int explosionFrames = 6;
+PImage[] deathFrames;
 
 //gameWin stuff
 int winTime = 0;
 int nextMapDelay = 400;
-int scoreToWin = 7;
+int scoreToWin = 5;
 
 //game logic
 Bird bird;
@@ -88,14 +95,17 @@ int gravity = 1;
 
 class Bird {
   PImage spriteSheet;
+  PImage deathSheet;
   int x, y, Width, Height;
 
   PImage[] frames;
   int currentFrame = 0;
+  int currentDeathFrame =0;
   int totalFrames;
   int frameDelay;
+  boolean isDead = false;
 
-  Bird(PImage spriteSheet, int totalFrames, int delay, int x, int y, int Width, int Height) {
+  Bird(PImage spriteSheet, int totalFrames, int delay, int x, int y, int Width, int Height, PImage deathSheet) {
     this.spriteSheet = spriteSheet;
     this.totalFrames = totalFrames;
     this.frameDelay = delay;
@@ -103,9 +113,18 @@ class Bird {
     this.y = y;
     this.Width = Width;
     this.Height = Height;
+    this.deathSheet = deathSheet;
 
     int frameWidth = spriteSheet.width / totalFrames;
     int frameHeight = spriteSheet.height;
+    int deathFrameWidth = deathSheet.width / explosionFrames;
+    int deathFrameHeight = deathSheet.height;
+
+    deathFrames = new PImage[explosionFrames];
+    for (int j = 0; j < explosionFrames; j++) {
+      int sourceX = j * deathFrameWidth;
+      deathFrames[j] = deathSheet.get(sourceX, 0, deathFrameWidth, deathFrameHeight);
+    }
 
     frames = new PImage[totalFrames];
     for (int i = 0; i < totalFrames; i++) {
@@ -123,7 +142,35 @@ class Bird {
   }
 
   void display() {
-    image(frames[currentFrame], x, y, Width, Height);
+    if (!isDead) {
+      image(frames[currentFrame], x, y, Width, Height);
+    } else {
+      tint(255, deathAlpha);  // apply fading effect
+      image(deathFrames[currentDeathFrame], x, y, Width, Height);
+      noTint(); // reset tint so it doesn't affect other images
+    }
+  }
+
+  int deathTimer = 0;
+
+  float deathAlpha = 255;
+  boolean fadingOut = false;
+  void die() {
+    isDead = true;
+    deathTimer++;
+    if (!fadingOut) {
+      if (deathTimer >= frameDelay) {
+        if (currentDeathFrame < deathFrames.length - 1) {
+          currentDeathFrame++;
+        } else {
+          fadingOut = true; // start fading once last frame reached
+        }
+        deathTimer = 0;
+      }
+    } else {
+      deathAlpha -= 5;  // decrease alpha gradually, adjust speed as needed
+      if (deathAlpha < 0) deathAlpha = 0;  // clamp minimum alpha
+    }
   }
 }
 
@@ -146,7 +193,7 @@ void setup() { //---------------------------------------------------------------
   size(360, 640, P2D);
   frameRate(60);
   surface.setLocation(displayWidth/2 - width/2, displayHeight/2 -height/2); //center of screen
-  surface.setTitle("Quacky Bird");
+  surface.setTitle("Cluck Jumper");
   random = new Random();
 
   //pipe
@@ -158,6 +205,8 @@ void setup() { //---------------------------------------------------------------
   birdX = width/8;
   birdY = height/4;
 
+  myFont = createFont("data/fonts/BlockHead_bold.ttf", 48);
+  textFont(myFont);
   //load images
   tPipeImg = loadImage ("data/obstacles/toppipe.png");
   bPipeImg = loadImage("data/obstacles/bottompipe.png");
@@ -178,11 +227,12 @@ void setup() { //---------------------------------------------------------------
   spriteSheetEgg = loadImage("data/birds/egg.png");
   spriteSheetChick = loadImage("data/birds/chick.png");
   spriteSheetChicken = loadImage("data/birds/chicken.png");
+  explosion = loadImage("data/BombExplosion/deathSheet.png");
 
   birds = new Bird[3];
-  birds[0] = new Bird(spriteSheetEgg, 3, 6, birdX, birdY, birdWidth, birdHeight); //egg
-  birds[1] = new Bird(spriteSheetChick, 4, 5, birdX, birdY, birdWidth, birdHeight); //chick
-  birds[2] = new Bird(spriteSheetChicken, 4, 5, birdX, birdY, birdWidth, birdHeight); //chicken
+  birds[0] = new Bird(spriteSheetEgg, 3, 6, birdX, birdY, birdWidth, birdHeight, explosion); //egg
+  birds[1] = new Bird(spriteSheetChick, 4, 5, birdX, birdY, birdWidth, birdHeight, explosion); //chick
+  birds[2] = new Bird(spriteSheetChicken, 4, 5, birdX, birdY, birdWidth, birdHeight, explosion); //chicken
 
   //create bird solloutes for game menu
   birdSilhouettes = new PImage[birds.length];
@@ -270,10 +320,11 @@ void move() {
   int offsetTop = 7;     // pixels bird can go above top edge (negative y)
   int offsetBottom = 5;  // pixels bird can go below previous bottom limit
   bird.y = constrain(bird.y, -offsetTop, height - (bird.Height -vOffset) - groundHeight + offsetBottom); //stop bird from leaving top of the screen or below ground
-
+  
   //pipe
-  float maxTopPipeHeight = (int)(pipeY - pipeHeight/4 - 1 * (pipeHeight/2)); //highest pipe height
-  float minTopPipeHeight = (int)(pipeY - pipeHeight/4 - 0 * (pipeHeight/2)); //lowest pipe height
+  float lowerBound = (int)(pipeY - pipeHeight/4 - 1 * (pipeHeight/2)); // smaller y (top limit)
+  float upperBound = (int)(pipeY - pipeHeight/4 - 0 * (pipeHeight/2)); // larger y (bottom limit)
+
 
   //move pipes left
   for (int i = 0; i < pipes.size(); i+=2) {
@@ -287,7 +338,7 @@ void move() {
 
     if (movementOn) {
 
-      if (topPipe.y >= minTopPipeHeight || topPipe.y <= maxTopPipeHeight) {
+      if (topPipe.y >= upperBound || topPipe.y <= lowerBound) {
         topPipe.verticalSpeed *= -1; //reverse direction
       }
       topPipe.y += topPipe.verticalSpeed;
@@ -336,6 +387,10 @@ void drawGameObjects(boolean doUpdate) {
     }
     move();//move everything
     bird.update(); //animate bird frames
+  }
+
+  if (gameState == STATE_GAMEOVER) {
+    bird.die();
   }
 
   //always draw bird and pipes in gameover state
@@ -401,6 +456,13 @@ void resetGame() {
   velocityY = 0;
   pipeX = width;
   lastPipeX = width;
+  bird.isDead = false;
+  bird.currentDeathFrame = 0;
+  bird.deathTimer = 0;
+  // Reset fade-out state and alpha so bird appears normally again
+  bird.fadingOut = false;
+  bird.deathAlpha = 255;
+
   placePipes(); //initial pipes
 }
 void drawLoading() {
@@ -455,7 +517,7 @@ void drawBirdSelection() {
   textAlign(LEFT, CENTER);
   text("Controls: ", 30, silhouetteY + birdHeight + 80 + 60);
   text("Spacebar to Jump", 50, silhouetteY + birdHeight + 80 + 60 + 25);
-  text("X to small jump (useful for map 3)", 50, silhouetteY + birdHeight + 80 + 60 + 50);
+  text("Press comma to small jump [useful for map 3]", 50, silhouetteY + birdHeight + 80 + 60 + 50);
   text("M to open this Menu again", 50, silhouetteY + birdHeight + 80 + 60 + 75);
 }
 
@@ -521,7 +583,7 @@ void keyPressed() {
     velocityY = -10; //bird jumps up to start flying
   } else if (gameState == STATE_PLAY) {
     if (key == ' ') velocityY = -12; //normal jump
-    if (key == 'x') velocityY = -8; //small jump
+    if (key == ',') velocityY = -8; //small jump
   } else if (gameState == STATE_GAMEWIN) { //game win
     if (key == ' ' && millis() - winTime > nextMapDelay) {
       currentMap ++;
